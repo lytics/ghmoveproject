@@ -51,6 +51,7 @@ type ghp struct {
 
 func (m *ghp) Run() {
 	//m.listIssues()
+	//m.client.Projects.DeleteProject(m.ctx, int64(48930))
 	m.findProjectAndCopy()
 }
 func (m *ghp) findProjectAndCopy() {
@@ -68,6 +69,10 @@ func (m *ghp) findProjectAndCopy() {
 		//gou.Debugf("id=%-9d %v", item.GetID(), item.GetName())
 		if item.GetNumber() == m.projectNumber {
 			m.handleProject(item)
+			gou.Warnf("Should we delete the old project? Y or N ?  project=%v org=%v", item.GetName(), m.org)
+			if askForConfirmation() {
+				m.client.Projects.DeleteProject(m.ctx, item.GetID())
+			}
 		}
 	}
 }
@@ -109,6 +114,7 @@ func (m *ghp) moveColumn(col *github.ProjectColumn) *github.ProjectColumn {
 	}
 	return newCol
 }
+
 func (m *ghp) moveCard(newCol *github.ProjectColumn, card *github.ProjectCard) {
 	data := &github.ProjectCardOptions{
 		Note: card.GetNote(),
@@ -134,6 +140,7 @@ func (m *ghp) moveCard(newCol *github.ProjectColumn, card *github.ProjectCard) {
 		gou.Errorf("error %v", err)
 	}
 }
+
 func (m *ghp) handleProject(p *github.Project) {
 
 	if m.deletePrjectFirst {
@@ -149,14 +156,22 @@ func (m *ghp) handleProject(p *github.Project) {
 	for _, col := range items {
 		gou.Debugf("Column:  %-9d %v", col.GetID(), col.GetName())
 		newCol := m.moveColumn(col)
-		cards, _, err := m.client.Projects.ListProjectCards(context.Background(), col.GetID(), nil)
-		dieIfErr("could not get project columns", err)
-		for _, card := range cards {
-			gou.Debugf("Card:  %-9d %v  %v", card.GetID(), card.GetNote(), card.GetColumnURL())
-			m.moveCard(newCol, card)
-			//m.moveColumn(card)
-			// CreateProjectCard(ctx context.Context, columnID int64, opt *ProjectCardOptions) (*ProjectCard, *Response, error)
+
+		page := 0
+		for {
+			cards, resp, err := m.client.Projects.ListProjectCards(context.Background(), col.GetID(), &github.ListOptions{PerPage: 100, Page: page})
+			dieIfErr("could not get project columns", err)
+			for _, card := range cards {
+				gou.Debugf("Card:  %-9d %v  %v", card.GetID(), card.GetNote(), card.GetColumnURL())
+				m.moveCard(newCol, card)
+			}
+			gou.Infof("got cards, more available? next=%v last=%v prev=%v", resp.NextPage, resp.LastPage, resp.PrevPage)
+			if resp.NextPage == 0 {
+				break
+			}
+			page = resp.NextPage
 		}
+
 	}
 }
 func (m *ghp) listIssues() {
@@ -168,6 +183,7 @@ func (m *ghp) listIssues() {
 		return
 	}
 }
+
 func (m *ghp) listProjects() {
 	items, _, err := m.client.Organizations.ListProjects(context.Background(), m.org, nil)
 	dieIfErr("list projects", err)
@@ -177,13 +193,12 @@ func (m *ghp) listProjects() {
 }
 func dieIfErr(msg string, err error) {
 	if err != nil {
-		//gou.Errorf("could not read %v", err)
 		gou.LogD(4, gou.ERROR, msg, err)
 		os.Exit(1)
 	}
 }
 
-// https://gist.github.com/albrow/5882501
+// copied from https://gist.github.com/albrow/5882501
 func askForConfirmation() bool {
 	var response string
 	_, err := fmt.Scanln(&response)
