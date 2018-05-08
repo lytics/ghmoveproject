@@ -138,6 +138,7 @@ func (m *ghp) moveCard(newCol *github.ProjectColumn, card *github.ProjectCard) {
 	_, _, err := m.client.Projects.CreateProjectCard(m.ctx, newCol.GetID(), data)
 	if err != nil {
 		gou.Errorf("error %v", err)
+		return
 	}
 }
 
@@ -158,22 +159,25 @@ func (m *ghp) handleProject(p *github.Project) {
 		newCol := m.moveColumn(col)
 
 		page := 0
+		allCards := make([]*github.ProjectCard, 0)
 		for {
 			cards, resp, err := m.client.Projects.ListProjectCards(context.Background(), col.GetID(), &github.ListOptions{PerPage: 100, Page: page})
 			dieIfErr("could not get project columns", err)
-			for _, card := range cards {
-				gou.Debugf("Card:  %-9d %v  %v", card.GetID(), card.GetNote(), card.GetColumnURL())
-				m.moveCard(newCol, card)
-			}
+			allCards = append(allCards, cards...)
 			gou.Infof("got cards, more available? next=%v last=%v prev=%v", resp.NextPage, resp.LastPage, resp.PrevPage)
 			if resp.NextPage == 0 {
 				break
 			}
 			page = resp.NextPage
 		}
-
+		for i := range allCards {
+			card := allCards[len(allCards)-i-1]
+			gou.Debugf("Card:  %-9d %v", card.GetID(), card.GetNote())
+			m.moveCard(newCol, card)
+		}
 	}
 }
+
 func (m *ghp) listIssues() {
 	items, _, err := m.client.Activity.ListIssueEventsForRepository(context.Background(), "lytics", "lio", nil)
 	dieIfErr("list issues", err)
